@@ -135,14 +135,6 @@ _BASIC_INVERTER_SENSORS = [
         native_unit_of_measurement=POWER_WATT,
     ),
     SensorEntityDescription(
-        key="p_grid_out",
-        name="Grid Export Power",
-        icon=Icon.GRID_EXPORT,
-        device_class=SensorDeviceClass.POWER,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=POWER_WATT,
-    ),
-    SensorEntityDescription(
         key="v_battery",
         name="Battery Voltage",
         icon=Icon.BATTERY,
@@ -213,6 +205,24 @@ _BASIC_INVERTER_SENSORS = [
     ),
 ]
 
+_GRID_IMPORT_SENSOR = SensorEntityDescription(
+    key="e_grid_in",
+    name="Grid Import Power",
+    icon=Icon.GRID_IMPORT,
+    device_class=SensorDeviceClass.POWER,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=POWER_WATT,
+)
+
+_GRID_EXPORT_SENSOR = SensorEntityDescription(
+    key="e_grid_out",
+    name="Grid Export Power",
+    icon=Icon.GRID_EXPORT,
+    device_class=SensorDeviceClass.POWER,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=POWER_WATT,
+)
+
 _PV_ENERGY_TODAY_SENSOR = SensorEntityDescription(
     key="e_pv_day",
     name="PV Energy Today",
@@ -273,28 +283,30 @@ _BATTERY_DISCHARGE_LIMIT_SENSOR = SensorEntityDescription(
     native_unit_of_measurement=POWER_WATT,
 )
 
-_BASIC_BATTERY_SENSORS = [
-    SensorEntityDescription(
-        key="battery_soc",
-        name="Battery Charge",
-        device_class=SensorDeviceClass.BATTERY,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=PERCENTAGE,
-    ),
-    SensorEntityDescription(
-        key="battery_num_cycles",
-        name="Battery Cycles",
-        icon=Icon.BATTERY_CYCLES,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-    ),
-    SensorEntityDescription(
-        key="v_battery_out",
-        name="Battery Output Voltage",
-        icon=Icon.BATTERY,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=ELECTRIC_POTENTIAL_VOLT,
-    ),
-]
+_BASIC_BATTERY_SENSORS = []
+
+_BATTERY_SOC_SENSOR = SensorEntityDescription(
+    key="battery_soc",
+    name="Battery Charge",
+    device_class=SensorDeviceClass.BATTERY,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=PERCENTAGE,
+)
+
+_BATTERY_VOUT_SENSOR = SensorEntityDescription(
+    key="v_battery_out",
+    name="Battery Output Voltage",
+    icon=Icon.BATTERY,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=ELECTRIC_POTENTIAL_VOLT,
+)
+
+_BATTERY_CYCLES_SENSOR = SensorEntityDescription(
+    key="battery_num_cycles",
+    name="Battery Cycles",
+    icon=Icon.BATTERY_CYCLES,
+    state_class=SensorStateClass.TOTAL_INCREASING,
+)
 
 _BATTERY_REMAINING_CAPACITY_SENSOR = SensorEntityDescription(
     key="battery_remaining_capacity",
@@ -332,6 +344,12 @@ async def async_setup_entry(
     # (e.g. sensors that derive values from several registers).
     async_add_entities(
         [
+            GridExport(
+                coordinator, config_entry, entity_description=_GRID_EXPORT_SENSOR
+            ),
+            GridImport(
+                coordinator, config_entry, entity_description=_GRID_IMPORT_SENSOR
+            ),
             PVEnergyTodaySensor(
                 coordinator, config_entry, entity_description=_PV_ENERGY_TODAY_SENSOR
             ),
@@ -386,6 +404,24 @@ async def async_setup_entry(
                         entity_description=_BATTERY_CELLS_VOLTAGE_SENSOR,
                         battery_id=batt_num,
                     ),
+                    BatteryCyclesSensor(
+                        coordinator,
+                        config_entry,
+                        entity_description=_BATTERY_CYCLES_SENSOR,
+                        battery_id=batt_num,
+                    ),
+                    BatterySocSensor(
+                        coordinator,
+                        config_entry,
+                        entity_description=_BATTERY_SOC_SENSOR,
+                        battery_id=batt_num,
+                    ),
+                    BatteryVoutSensor(
+                        coordinator,
+                        config_entry,
+                        entity_description=_BATTERY_VOUT_SENSOR,
+                        battery_id=batt_num,
+                    ),
                 ]
             )
         else:
@@ -412,6 +448,32 @@ class InverterBasicSensor(InverterEntity, SensorEntity):
     def native_value(self) -> StateType:
         """Return the register value as referenced by the 'key' property of the associated entity description."""
         return self.data.dict().get(self.entity_description.key)
+
+
+class GridImport(InverterBasicSensor):
+    """Power being Imported from grid, will be 0 when exporting"""
+
+    @property
+    def native_value(self) -> StateType:
+        if self.data.p_grid_out < 0:
+            importPower = self.data.p_grid_out * -1
+        else:
+            importPower = 0
+
+        return importPower
+
+
+class GridExport(InverterBasicSensor):
+    """Power being Exported to grid, will be 0 when importing"""
+
+    @property
+    def native_value(self) -> StateType:
+        if self.data.p_grid_out >= 0:
+            exportPower = self.data.p_grid_out
+        else:
+            exportPower = 0
+
+        return exportPower
 
 
 class PVEnergyTodaySensor(InverterBasicSensor):
@@ -574,6 +636,30 @@ class BatteryRemainingCapacitySensor(BatteryBasicSensor):
         # Raw value is in Ah (Amp Hour)
         # Convert to KWh using formula Ah * V / 1000
         return round(battery_remaining_capacity, 3)
+
+
+class BatteryCyclesSensor(BatteryBasicSensor):
+    """Battery Cycles sensor."""
+
+    @property
+    def native_value(self) -> StateType:
+        return self.data.battery_num_cycles
+
+
+class BatterySocSensor(BatteryBasicSensor):
+    """Battery State of Charge sensor."""
+
+    @property
+    def native_value(self) -> StateType:
+        return self.data.battery_soc
+
+
+class BatteryVoutSensor(BatteryBasicSensor):
+    """Battery Voltage Output sensor."""
+
+    @property
+    def native_value(self) -> StateType:
+        return self.data.v_battery_out
 
 
 class BatteryCellsVoltageSensor(BatteryBasicSensor):
