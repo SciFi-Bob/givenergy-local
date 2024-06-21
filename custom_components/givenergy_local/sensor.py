@@ -135,14 +135,6 @@ _BASIC_INVERTER_SENSORS = [
         native_unit_of_measurement=POWER_WATT,
     ),
     SensorEntityDescription(
-        key="p_grid_out",
-        name="Grid Export Power",
-        icon=Icon.GRID_EXPORT,
-        device_class=SensorDeviceClass.POWER,
-        state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=POWER_WATT,
-    ),
-    SensorEntityDescription(
         key="v_battery",
         name="Battery Voltage",
         icon=Icon.BATTERY,
@@ -212,6 +204,24 @@ _BASIC_INVERTER_SENSORS = [
         native_unit_of_measurement=TEMP_CELSIUS,
     ),
 ]
+
+_GRID_IMPORT_SENSOR = SensorEntityDescription(
+    key="e_grid_in",
+    name="Grid Import Power",
+    icon=Icon.GRID_IMPORT,
+    device_class=SensorDeviceClass.POWER,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=POWER_WATT,
+)
+
+_GRID_EXPORT_SENSOR = SensorEntityDescription(
+    key="e_grid_out",
+    name="Grid Export Power",
+    icon=Icon.GRID_EXPORT,
+    device_class=SensorDeviceClass.POWER,
+    state_class=SensorStateClass.MEASUREMENT,
+    native_unit_of_measurement=POWER_WATT,
+)
 
 _PV_ENERGY_TODAY_SENSOR = SensorEntityDescription(
     key="e_pv_day",
@@ -334,6 +344,12 @@ async def async_setup_entry(
     # (e.g. sensors that derive values from several registers).
     async_add_entities(
         [
+            GridExport(
+                coordinator, config_entry, entity_description=_GRID_EXPORT_SENSOR
+            ),
+            GridImport(
+                coordinator, config_entry, entity_description=_GRID_IMPORT_SENSOR
+            ),
             PVEnergyTodaySensor(
                 coordinator, config_entry, entity_description=_PV_ENERGY_TODAY_SENSOR
             ),
@@ -432,6 +448,32 @@ class InverterBasicSensor(InverterEntity, SensorEntity):
     def native_value(self) -> StateType:
         """Return the register value as referenced by the 'key' property of the associated entity description."""
         return self.data.dict().get(self.entity_description.key)
+
+
+class GridImport(InverterBasicSensor):
+    """Power being Imported from grid, will be 0 when exporting"""
+
+    @property
+    def native_value(self) -> StateType:
+        if self.data.p_grid_out < 0:
+            importPower = self.data.p_grid_out * -1
+        else:
+            importPower = 0
+
+        return importPower
+
+
+class GridExport(InverterBasicSensor):
+    """Power being Exported to grid, will be 0 when importing"""
+
+    @property
+    def native_value(self) -> StateType:
+        if self.data.p_grid_out >= 0:
+            exportPower = self.data.p_grid_out
+        else:
+            exportPower = 0
+
+        return exportPower
 
 
 class PVEnergyTodaySensor(InverterBasicSensor):
